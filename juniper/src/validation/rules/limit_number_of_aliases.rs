@@ -6,8 +6,8 @@ use crate::{
 };
 
 pub struct Aliases {
-    alias_count: u8,
-    max_allowed: u8,
+    alias_count: u32,
+    max_allowed: u32,
 }
 
 pub fn factory<'a>() -> Aliases {
@@ -107,28 +107,32 @@ mod tests {
 
     #[test]
     fn multiple_field_aliases_not_allowed() {
-        expect_fails_rule::<_, _, DefaultScalarValue>(
-            factory,
-            r#"
-        query MyQuery {
-            myField1: my_field,
-            myField2: my_field,
-            myField3: my_field,
-            myField4: my_field,
-            myField5: my_field
+        let mut query = String::from("query MyQuery {\n");
+        let mut expected_errors: Vec<RuleError> = Vec::new();
+        let mut current_error_index = 124;
+        let mut previous_line_length = 0;
+        for i in 1..=9999 {
+            let line = format!("            myField{}: my_field,\n", i);
+            let line_length = line.len();
+            query.push_str(&line);
+            // 3 aliases are allowed, so we ignore the first 3.
+            if i > 3 {
+                current_error_index += previous_line_length;
+                previous_line_length = line_length;
+                expected_errors.push(RuleError::new(
+                    &error_message(&format!("myField{}", i)),
+                    &[SourcePosition::new(
+                        current_error_index,
+                        i,
+                        12,
+                    )],
+                ));
+            }
+
         }
-        "#,
-            &[
-                RuleError::new(
-                    &error_message("myField4"),
-                    &[SourcePosition::new(133, 5, 12)],
-                ),
-                RuleError::new(
-                    &error_message("myField5"),
-                    &[SourcePosition::new(165, 6, 12)],
-                ),
-            ],
-        );
+        query.push_str("        }\n");
+
+        expect_fails_rule::<_, _, DefaultScalarValue>(factory, &query, &expected_errors);
     }
 
     #[test]
